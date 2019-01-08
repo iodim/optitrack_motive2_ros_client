@@ -8,11 +8,13 @@ add_compile_options(-std=c++11)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  nav_msgs
-  roscpp
-  rostime
-  std_msgs
-  acl_msgs # used for compatibility with ACL group's Vicon message type.
+    nav_msgs
+    roscpp
+    rostime
+    message_generation
+    std_msgs
+    geometry_msgs
+    std_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -55,6 +57,13 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 #   Message2.msg
 # )
 
+
+add_message_files(
+    DIRECTORY msg
+    FILES
+    RigidBody.msg
+)
+
 ## Generate services in the 'srv' folder
 # add_service_files(
 #   FILES
@@ -70,10 +79,10 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   nav_msgs#   std_msgs
-# )
+ generate_messages(
+    DEPENDENCIES
+    std_msgs geometry_msgs
+ )
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -105,9 +114,9 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
- INCLUDE_DIRS include
- LIBRARIES optitrack_motive_2_client
- CATKIN_DEPENDS nav_msgs acl_msgs roscpp rostime std_msgs
+    INCLUDE_DIRS include
+    LIBRARIES optitrack_motive_2_client
+    CATKIN_DEPENDS message_runtime nav_msgs geometry_msgs roscpp rostime std_msgs
 #  DEPENDS system_lib
 )
 
@@ -118,15 +127,15 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIRS}
-  ${Boost_INCLUDE_DIRS}
+    include
+    ${catkin_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIRS}
+    ${Boost_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
 add_library(${PROJECT_NAME} SHARED
-  include/${PROJECT_NAME}/motionCaptureClientFramework.cpp
+    include/${PROJECT_NAME}/motiveClient.cpp
 )
 
 ## Add cmake target dependencies of the library
@@ -151,10 +160,10 @@ add_executable(${PROJECT_NAME}_node src/optitrack_motive_2_client_node.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node
-  ${PROJECT_NAME}
-  ${catkin_LIBRARIES}
-  ${Boost_LIBRARIES}
-  ${catkin_LIBRARIES}
+    ${PROJECT_NAME}
+    ${catkin_LIBRARIES}
+    ${Boost_LIBRARIES}
+    ${catkin_LIBRARIES}
 )
 
 #############
@@ -173,9 +182,9 @@ target_link_libraries(${PROJECT_NAME}_node
 
 ## Mark executables and/or libraries for installation
 install(TARGETS ${PROJECT_NAME}_node
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+    ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+    LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+    RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
 ## Mark cpp header files for installation

@@ -1,0 +1,10 @@
+Header header
+geometry_msgs/Pose pose
+geometry_msgs/Twist twist
+geometry_msgs/Vector3 linear_accel
+geometry_msgs/Vector3 angular_accel
+float64 mean_error
+bool tracking_valid
+bool has_pose
+bool has_twist
+bool has_accel
