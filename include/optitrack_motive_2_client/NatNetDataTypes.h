@@ -236,6 +236,18 @@ typedef struct sMarkerSetDescription
     char szName[MAX_NAMELENGTH];            // MarkerSet name
     int32_t nMarkers;                       // # of markers in MarkerSet
     char** szMarkerNames;                   // array of marker names
+#if defined(__cplusplus)
+    ~sMarkerSetDescription() {
+        if (szMarkerNames) {
+            for (int i = 0; i < nMarkers; i++) {
+                delete[] szMarkerNames[i];
+                szMarkerNames[i] = nullptr; // really hacky way to avoid double delete
+            }
+        }
+        delete[] szMarkerNames;
+        szMarkerNames = nullptr;
+    }
+#endif
 } sMarkerSetDescription;
 
 
@@ -274,10 +286,7 @@ typedef struct sRigidBodyData
     int16_t params;                         // Host defined tracking flags
 
 #if defined(__cplusplus)
-    sRigidBodyData():
-            ID(0), params(0)
-    {
-    }
+    sRigidBodyData() = default;
 #endif
 } sRigidBodyData;
 
@@ -345,12 +354,66 @@ typedef struct sDataDescription
     } Data;
 
 #if defined(__cplusplus)
-    ~sDataDescription() {
-        if (type == 1) {
-            if (Data.RigidBodyDescription->nMarkers != 0) {
-                free(Data.RigidBodyDescription->MarkerPositions);
-                free(Data.RigidBodyDescription->MarkerRequiredLabels);
+    void initData() {
+        switch (type) {
+            case Descriptor_MarkerSet: {
+                Data.MarkerSetDescription = new sMarkerSetDescription;
+                break;
             }
+            case Descriptor_RigidBody: {
+                Data.RigidBodyDescription = new sRigidBodyDescription;
+                break;
+            }
+            case Descriptor_Skeleton: {
+                Data.SkeletonDescription = new sSkeletonDescription;
+                break;
+            }
+            case Descriptor_ForcePlate: {
+                Data.ForcePlateDescription = new sForcePlateDescription;
+                break;
+            }
+            case Descriptor_Device: {
+                Data.DeviceDescription = new sDeviceDescription;
+            }
+            default:
+                break;
+        }
+    }
+
+    ~sDataDescription() {
+        switch (type) {
+            case Descriptor_MarkerSet: {
+                delete Data.MarkerSetDescription;
+                Data.MarkerSetDescription = nullptr;
+                break;
+            }
+            case Descriptor_RigidBody: {
+                if (Data.RigidBodyDescription->nMarkers != 0) {
+                    delete[] Data.RigidBodyDescription->MarkerPositions;
+                    Data.RigidBodyDescription->MarkerPositions = nullptr;
+                    delete[] Data.RigidBodyDescription->MarkerRequiredLabels;
+                    Data.RigidBodyDescription->MarkerRequiredLabels = nullptr;
+                }
+                delete Data.RigidBodyDescription;
+                Data.RigidBodyDescription = nullptr;
+                break;
+            }
+            case Descriptor_Skeleton: {
+                delete Data.SkeletonDescription;
+                Data.SkeletonDescription = nullptr;
+                break;
+            }
+            case Descriptor_ForcePlate: {
+                delete Data.ForcePlateDescription;
+                Data.ForcePlateDescription = nullptr;
+                break;
+            }
+            case Descriptor_Device: {
+                delete Data.DeviceDescription;
+                Data.DeviceDescription = nullptr;
+            }
+            default:
+                break;
         }
     }
 #endif

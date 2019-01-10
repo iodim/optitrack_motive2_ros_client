@@ -1,6 +1,8 @@
 #include "motiveClient.h"
 #include "NatNetDataTypes.h"
 
+motiveClient::motiveClient() = default;
+
 motiveClient::motiveClient(const std::string &szMyIPAddress, const std::string &szServerIPAddress) {
     // Convert address std::string to c_str.
     my_address = szMyIPAddress.c_str();
@@ -23,7 +25,6 @@ void motiveClient::registerOnDataDescriptionsCallback(const std::function<void(c
     onDataDescriptionsCallback = callback;
 }
 
-
 bool motiveClient::initConnection() {
     const int optval = 0x100000;
     socklen_t optval_size = 4;
@@ -34,15 +35,15 @@ bool motiveClient::initConnection() {
     int retval;
 
     multicastAddress.s_addr = inet_addr(MULTICAST_ADDRESS);
-    printf("Client: %s\n", my_address);
-    printf("Server: %s\n", server_address);
-    printf("Multicast Group: %s\n", MULTICAST_ADDRESS);
+    std::cout << "Client: " << my_address << std::endl;
+    std::cout << "Server: " << server_address << std::endl;
+    std::cout <<"Multicast Group: " << MULTICAST_ADDRESS << std::endl;
 
     // Create "Command" socket
     unsigned short port = 8000;
     commandSocket = createCommandSocket(inet_addr(my_address), port);
     if (commandSocket == -1) { // error
-        printf("Command socket creation error\n");
+        std::cerr << "Command socket creation error\n";
         return false;
     }
     else {
@@ -54,10 +55,8 @@ bool motiveClient::initConnection() {
         getsockopt(commandSocket, SOL_SOCKET, SO_RCVBUF, (char *) &optval, &optval_size);
         if (optval != 0x100000) {
           // err - actual size...
-          printf("[commandSocket] ReceiveBuffer size = %d\n", optval);
+          DEBUG_MSG("[commandSocket] ReceiveBuffer size =" << optval);
         }
-        // startup our "Command Listener" thread
-//        commandResponseThread = std::thread(&motiveClient::commandResponseListener, this);
     }
 
     // Create a "Frame" socket
@@ -69,7 +68,7 @@ bool motiveClient::initConnection() {
 
     if (retval == -1) {
         close(frameSocket);
-        printf("Error while setting frameSocket options\n");
+        std::cerr << "Error while setting frameSocket options\n";
         return false;
     }
 
@@ -80,7 +79,7 @@ bool motiveClient::initConnection() {
     mySocketAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(frameSocket, (struct sockaddr *) &mySocketAddr, sizeof(struct sockaddr)) == -1) {
-        printf("[PacketClient] bind failed\n");
+        std::cerr << "[PacketClient] bind failed\n";
         return false;
     }
 
@@ -91,7 +90,7 @@ bool motiveClient::initConnection() {
     retval = setsockopt(frameSocket, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *) &mreq, sizeof(mreq));
 
     if (retval == -1) {
-        printf("[PacketClient] join failed\n");
+        std::cerr << "[PacketClient] join failed\n";
         return false;
     }
 
@@ -99,10 +98,8 @@ bool motiveClient::initConnection() {
     setsockopt(frameSocket, SOL_SOCKET, SO_RCVBUF, (char *) &optval, 4);
     getsockopt(frameSocket, SOL_SOCKET, SO_RCVBUF, (char *) &optval, &optval_size);
     if (optval != 0x100000) {
-        printf("[PacketClient] ReceiveBuffer size = %d\n", optval);
+        DEBUG_MSG("[commandSocket] ReceiveBuffer size =" << optval);
     }
-//    frameListenerThread = std::thread(&motiveClient::frameListener, this);
-
 
     // Server address for commands
     memset(&hostAddr, 0, sizeof(hostAddr));
@@ -122,11 +119,10 @@ bool motiveClient::initConnection() {
                               0,
                               (sockaddr *) &hostAddr,
                               sizeof(hostAddr));
-        printf("Trying to connect\n");
+
         if (iRet != -1){
-            printf("Connected!\n Waiting for server info in response.\n");
+            std::cout << "Connected to server!\n";
         }
-        std::cout << "sup\n";
 
         // Wait for server response.
         // This will contain the server tick frequency.
@@ -145,28 +141,26 @@ bool motiveClient::initConnection() {
         if ((nDataBytesReceived != 0) && (nDataBytesReceived != -1)) {
             // debug - print message
             inet_ntop(AF_INET, &(srvSocketAddress.sin_addr), ip_as_str, INET_ADDRSTRLEN);
-            printf("[Client] Received command from %s: Command=%d, nDataBytes=%d\n",
-                   ip_as_str, (int) packetIn.iMessage, (int) packetIn.nDataBytes);
+
+            DEBUG_MSG("[Client] Received command from " << ip_as_str << ": Command="
+                << (int) packetIn.iMessage << ", nDataBytes=" << (int) packetIn.nDataBytes);
 
             auto ptr = (unsigned char *) &packetIn;
             auto server_info = (sSender_Server *) (ptr + 4);
 
-            std::cout << "server tick frequency: " << server_info->HighResClockFrequency << std::endl;
+            DEBUG_MSG("server tick frequency: " << server_info->HighResClockFrequency);
             server_frequency = server_info->HighResClockFrequency;
             // Done processing server response.
 
-            // Initialisation completed -- startup the threads
             return true;
         }
     }
-    std::cout << "Number of tries exceeded -- shutting down.\n";
+    std::cerr << "Number of tries exceeded -- shutting down.\n";
     return false;
 }
 
 void motiveClient::dataListener() {
-    int messageID;
-    size_t nBytes;
-    char szData[20000];
+    char szData[MAX_PACKETSIZE];
     socklen_t addr_len = sizeof(sockaddr);
     sockaddr_in TheirAddress{};
 
@@ -185,7 +179,8 @@ void motiveClient::handlePacket(char *ptr) {
             unpackFrameOfMocapData(ptr + 4, frame);
             bool models_changed = (frame.params & 0x02) != 0;
             if (models_changed){
-                //
+                requestDataDescriptions();
+                DEBUG_MSG("Models changed!");
             }
             if (onFrameCallback) {
                 onFrameCallback(frame);
@@ -234,24 +229,22 @@ void motiveClient::handlePacket(char *ptr) {
                 memcpy(&gCommandResponse, &packet->Data.lData[0], gCommandResponseSize);
             } else {
                 memcpy(&gCommandResponseString[0], &packet->Data.cData[0], gCommandResponseSize);
-                printf("Response : %s", gCommandResponseString);
+                DEBUG_MSG("Response : " << gCommandResponseString);
                 gCommandResponse = 0;   // ok
             }
             break;
         }
         case NAT_UNRECOGNIZED_REQUEST: {
-            printf("[Client] received 'unrecognized request'\n");
+            DEBUG_MSG("[Client] received 'unrecognized request'");
             gCommandResponseSize = 0;
             gCommandResponse = 1;       // err
             break;
         }
         case NAT_MESSAGESTRING: {
-            printf("[Client] Received message: %s\n",
-                   packet->Data.szData);
+            DEBUG_MSG("[Client] Received message: " << packet->Data.szData << std::endl);
             break;
         }
         default: {
-            std::cout << "paok\n";
             break;
         }
     }
@@ -371,7 +364,6 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
     int nMarkerSets = 0;
     memcpy(&frame.nMarkerSets, ptr, 4);
     ptr += 4;
-//    printf("Number of MarkerSets: %d\n", frame.nMarkerSets);
 
     // Loop through number of marker sets and get name and data
     for (int i = 0; i < frame.nMarkerSets; i++) {
@@ -379,13 +371,11 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
         strcpy(frame.MocapData[i].szName, ptr);
         size_t nDataBytes = strlen(frame.MocapData[i].szName) + 1;
         ptr += nDataBytes;
-//        printf("Model Name: %s\n", frame.MocapData[i].szName);
 
 
         // sMarker data
         memcpy(&frame.MocapData[i].nMarkers, ptr, 4);
         ptr += 4;
-//        printf("Marker Count : %d\n", frame.MocapData[i].nMarkers);
         frame.MocapData[i].Markers = new MarkerData[frame.MocapData[i].nMarkers];
 
         // Loop through every Marker(x, y, z) contained in the current MarketSet
@@ -396,7 +386,6 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
             ptr += 4;
             memcpy(&frame.MocapData[i].Markers[j][2], ptr, 4);
             ptr += 4;
-//            printf("\tMarker %d : [x=%3.2f,y=%3.2f,z=%3.2f]\n", j, frame.MocapData[i].Markers[j][0], frame.MocapData[i].Markers[j][1], frame.MocapData[i].Markers[j][2]);
         }
     }
 
@@ -405,7 +394,6 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
     ptr += 4;
 
     // OtherMarker list is Deprecated
-//    printf("Unidentified sMarker Count : %d\n", frame.nOtherMarkers);
     for (int i = 0; i < frame.nOtherMarkers; i++) {
         memcpy(&frame.OtherMarkers[i][0], ptr, 4);
         ptr += 4;
@@ -419,7 +407,6 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
     memcpy(&frame.nRigidBodies, ptr, 4);
     ptr += 4;
 
-//        printf("Rigid Body Count : %d\n", nRigidBodies);
     for (int i = 0; i < frame.nRigidBodies; i++) {
         // Rigid body position and orientation
         memcpy(&frame.RigidBodies[i].ID, ptr, 4);
@@ -438,9 +425,6 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
         ptr += 4;
         memcpy(&frame.RigidBodies[i].qw, ptr, 4);
         ptr += 4;
-//            printf("ID : %d\n", ID);
-//            printf("pos: [%3.2f,%3.2f,%3.2f]\n", x, y, z);
-//            printf("ori: [%3.2f,%3.2f,%3.2f,%3.2f]\n", qx, qy, qz, qw);
 
         // NatNet version 2.0 and later
         if (major >= 2) {
@@ -495,15 +479,11 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
                 ptr += 4;
                 memcpy(&frame.Skeletons[i].RigidBodyData[j].qw, ptr, 4);
                 ptr += 4;
-                // printf("ID : %d\n", ID);
-                // printf("pos: [%3.2f,%3.2f,%3.2f]\n", x, y, z);
-                // printf("ori: [%3.2f,%3.2f,%3.2f,%3.2f]\n", qx, qy, qz, qw);
 
                 // Mean marker error (NatNet version 2.0 and later)
                 if (major >= 2) {
                     memcpy(&frame.Skeletons[i].RigidBodyData[j].MeanError, ptr, 4);
                     ptr += 4;
-                    // printf("Mean marker error: %3.2f\n", fError);
                 }
 
                 // Tracking flags (NatNet version 2.6 and later)
@@ -526,16 +506,7 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
 
         // Loop through labeled markers
         for (int i = 0; i < frame.nLabeledMarkers; i++) {
-            // id
-            // sMarker ID Scheme:
-            // Active Markers:
-            //   ID = ActiveID, correlates to RB ActiveLabels list
-            // Passive Markers:
-            //   If Asset with Legacy Labels
-            //      AssetID 	(Hi Word)
-            //      MemberID	(Lo Word)
-            //   Else
-            //      PointCloud ID
+
             memcpy(&frame.LabeledMarkers[i].ID, ptr, 4);
             ptr += 4;
             int modelID, markerID;
@@ -592,10 +563,6 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
                 memcpy(&frame.LabeledMarkers[i].residual, ptr, 4);
                 ptr += 4;
             }
-//                printf("ID  : [MarkerID: %d] [ModelID: %d]\n", markerID, modelID);
-//                printf("pos : [%3.2f,%3.2f,%3.2f]\n", x, y, z);
-//                printf("size: [%3.2f]\n", size);
-//                printf("err:  [%3.2f]\n", residual);
         }
     }
 
@@ -622,9 +589,7 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
                 for (int k = 0; k < frame.ForcePlates[i].ChannelData[j].nFrames; k++) {
                     memcpy(&frame.ForcePlates[i].ChannelData[j].Values[k], ptr, 4);
                     ptr += 4;
-//                    printf("%3.2f   ", val);
                 }
-//                printf("\n");
             }
         }
     }
@@ -652,9 +617,7 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
                 for (int k = 0; k < frame.Devices[i].ChannelData[j].nFrames; k++) {
                     memcpy(&frame.Devices[i].ChannelData[j].Values[k], ptr, 4);
                     ptr += 4;
-//                    printf("%3.2f   ", val);
                 }
-//                printf("\n");
             }
         }
     }
@@ -689,29 +652,17 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
         frame.fTimestamp = (double) fTemp;
     }
 
-    // Convert to microseconds
-    // outputFrame.timestamp = (uint64_t) round((timestamp*1e9)/server_frequency);
-    // printf("Timestamp : %3.3f\n", timestamp);
-
     // high res timestamps (version 3.0 and later)
     if (major >= 3) {
         memcpy(&frame.CameraMidExposureTimestamp, ptr, 8);
         ptr += 8;
-        // printf("Mid-exposure timestamp : %" PRIu64 "\n", cameraMidExposureTimestamp);
 
         memcpy(&frame.CameraDataReceivedTimestamp, ptr, 8);
         ptr += 8;
-        // printf("Camera data received timestamp : %" PRIu64 "\n", cameraDataReceivedTimestamp);
 
         uint64_t transmitTimestamp = 0;
         memcpy(&frame.TransmitTimestamp, ptr, 8);
         ptr += 8;
-        // printf("Transmit timestamp : %" PRIu64 "\n", transmitTimestamp);
-
-        // Convert timestamps to microseconds and save them in the output packet
-        // outputFrame.mid_exposure_timestamp = (uint64_t) round((cameraMidExposureTimestamp*1e9)/server_frequency);
-        // outputFrame.camera_data_received_timestamp = (uint64_t) round((cameraDataReceivedTimestamp*1e9)/server_frequency);
-        // outputFrame.transmit_timestamp = (uint64_t) round((transmitTimestamp*1e9)/server_frequency);
     }
 
     // frame params
@@ -728,7 +679,6 @@ void motiveClient::unpackFrameOfMocapData(char *ptr, sFrameOfMocapData &frame) {
     int eod = 0;
     memcpy(&eod, ptr, 4);
     ptr += 4;
-    // printf("End Packet\n-------------\n");
 }
 
 void motiveClient::requestDataDescriptions() {
@@ -740,6 +690,7 @@ void motiveClient::requestDataDescriptions() {
     while (tries--) {
         ssize_t nDataBytesReceived = sendto(commandSocket, (char*) &packet, 4 + packet.nDataBytes, 0, (sockaddr *) &hostAddr, sizeof(hostAddr));
         if ((nDataBytesReceived != 0) && (nDataBytesReceived != -1)) {
+
             break;
         }
     }
@@ -751,63 +702,72 @@ void motiveClient::unpackDataDescriptions(char *ptr, sDataDescriptions &descript
     int major = NatNetVersion[0];
     int minor = NatNetVersion[1];
 
+    DEBUG_MSG("\nBegin descriptions packet");
+    DEBUG_MSG("==========================");
+
     memcpy(&descriptions.nDataDescriptions, ptr, 4);
     ptr += 4;
-    printf("Dataset Count : %d\n", descriptions.nDataDescriptions);
+    DEBUG_MSG("Dataset Count: " << descriptions.nDataDescriptions);
 
     for (int i = 0; i < descriptions.nDataDescriptions; i++) {
-        printf("Dataset %d\n", i);
+        DEBUG_MSG("Dataset: " << i);
 
         memcpy(&descriptions.arrDataDescriptions[i].type, ptr, 4);
         ptr += 4;
-        printf("Type : %d\n", descriptions.arrDataDescriptions[i].type);
+        DEBUG_MSG("Type: " << descriptions.arrDataDescriptions[i].type);
+        descriptions.arrDataDescriptions[i].initData();
 
-        if (descriptions.arrDataDescriptions[i].type == 0) { // markerset
+        if (descriptions.arrDataDescriptions[i].type == Descriptor_MarkerSet) { // markerset
             // name
             strcpy(descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szName, ptr);
             size_t nDataBytes = strlen(descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szName) + 1;
             ptr += nDataBytes;
-            printf("Markerset Name: %s\n", descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szName);
+            DEBUG_MSG("Markerset Name: " << descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szName);
 
             // marker data
             memcpy(&descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->nMarkers, ptr, 4);
             ptr += 4;
-            printf("sMarker Count : %d\n", descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->nMarkers);
+            DEBUG_MSG("sMarker Count: " << descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->nMarkers);
 
+            descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szMarkerNames =
+                    new char*[descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->nMarkers];
             for (int j = 0; j < descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->nMarkers; j++) {
+                char str[MAX_NAMELENGTH];
+                strcpy(str, ptr);
+                size_t tess = strlen(str) + 1;
+                descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szMarkerNames[j] = new char[tess];
                 strcpy(descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szMarkerNames[j], ptr);
-                size_t nDataBytes = strlen(descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szMarkerNames[j]) + 1;
-                ptr += nDataBytes;
-                printf("sMarker Name: %s\n", descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szMarkerNames[j]);
+                ptr += tess;
+                DEBUG_MSG("sMarker Name: " << descriptions.arrDataDescriptions[i].Data.MarkerSetDescription->szMarkerNames[j]);
             }
         }
-        else if (descriptions.arrDataDescriptions[i].type == 1) { // rigid body
+        else if (descriptions.arrDataDescriptions[i].type == Descriptor_RigidBody) { // rigid body
             if (major >= 2) {
                 // name
                 strcpy(descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->szName, ptr);
                 ptr += strlen(descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->szName) + 1;
-                printf("Name: %s\n", descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->szName);
+                DEBUG_MSG("Name:: " << descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->szName);
             }
 
             memcpy(&descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->ID, ptr, 4);
             ptr += 4;
-            printf("ID : %d\n", descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->ID);
+            DEBUG_MSG("ID: " << descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->ID);
 
             memcpy(&descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->parentID, ptr, 4);
             ptr += 4;
-            printf("Parent ID : %d\n", descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->parentID);
+            DEBUG_MSG("Parent ID: " << descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->parentID);
 
             memcpy(&descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsetx, ptr, 4);
             ptr += 4;
-            printf("X Offset : %3.2f\n", descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsetx);
+            DEBUG_MSG("X Offset: " << descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsetx);
 
             memcpy(&descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsety, ptr, 4);
             ptr += 4;
-            printf("Y Offset : %3.2f\n", descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsety);
+            DEBUG_MSG("Y Offset: " << descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsety);
 
             memcpy(&descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsetz, ptr, 4);
             ptr += 4;
-            printf("Z Offset : %3.2f\n", descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsetz);
+            DEBUG_MSG("Z Offset: " << descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->offsetz);
 
             // Per-marker data (NatNet 3.0 and later)
             if (major >= 3) {
@@ -829,36 +789,32 @@ void motiveClient::unpackDataDescriptions(char *ptr, sDataDescriptions &descript
                 ptr += nBytes;
 
                 for (int j = 0; j < nMarkers; j++) {
-                    printf("\tsMarker #%d:\n", j);
-                    printf("\t\tPosition: %.2f, %.2f, %.2f\n",
-                           descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->MarkerPositions[j][0],
-                           descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->MarkerPositions[j][1],
+                    DEBUG_MSG("\tsMarker #" << j);
+                    DEBUG_MSG("\t\tPosition: " <<
+                           descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->MarkerPositions[j][0] <<
+                           descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->MarkerPositions[j][1] <<
                            descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->MarkerPositions[j][2]
                     );
                     if (descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->MarkerRequiredLabels[j] != 0) {
-                        printf("\t\tRequired active label: %d\n",
+                        DEBUG_MSG("\t\tRequired active label:: " <<
                                descriptions.arrDataDescriptions[i].Data.RigidBodyDescription->MarkerRequiredLabels[j]
                         );
                     }
                 }
-//
-//                free(markerPositions);
-//                free(markerRequiredLabels);
             }
         }
-        else if (descriptions.arrDataDescriptions[i].type == 2) { // skeleton
-            char szName[MAX_NAMELENGTH];
+        else if (descriptions.arrDataDescriptions[i].type == Descriptor_Skeleton) { // skeleton
             strcpy(descriptions.arrDataDescriptions[i].Data.SkeletonDescription->szName, ptr);
             ptr += strlen(descriptions.arrDataDescriptions[i].Data.SkeletonDescription->szName) + 1;
-            printf("Name: %s\n", szName);
+            DEBUG_MSG("Name: " << descriptions.arrDataDescriptions[i].Data.SkeletonDescription->szName);
 
             memcpy(&descriptions.arrDataDescriptions[i].Data.SkeletonDescription->skeletonID, ptr, 4);
             ptr += 4;
-            printf("ID : %d\n", descriptions.arrDataDescriptions[i].Data.SkeletonDescription->skeletonID);
+            DEBUG_MSG("ID: " << descriptions.arrDataDescriptions[i].Data.SkeletonDescription->skeletonID);
 
             memcpy(&descriptions.arrDataDescriptions[i].Data.SkeletonDescription->nRigidBodies, ptr, 4);
             ptr += 4;
-            printf("RigidBody (Bone) Count : %d\n",
+            DEBUG_MSG("RigidBody (Bone) Count: " <<
                    descriptions.arrDataDescriptions[i].Data.SkeletonDescription->nRigidBodies
             );
 
@@ -867,44 +823,45 @@ void motiveClient::unpackDataDescriptions(char *ptr, sDataDescriptions &descript
                     // RB name
                     strcpy(descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].szName, ptr);
                     ptr += strlen(descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].szName) + 1;
-                    printf("Rigid Body Name: %s\n",
+                    DEBUG_MSG("Rigid Body Name: " <<
                            descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].szName
                     );
                 }
 
                 memcpy(&descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].ID, ptr, 4);
                 ptr += 4;
-                printf("RigidBody ID : %d\n",
+                DEBUG_MSG("RigidBody ID: " <<
                        descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].ID
                 );
 
                 memcpy(&descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].parentID, ptr, 4);
                 ptr += 4;
-                printf("Parent ID : %d\n",
+                DEBUG_MSG("Parent ID: " <<
                        descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].parentID
                 );
 
                 memcpy(&descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].offsetx, ptr, 4);
                 ptr += 4;
-                printf("X Offset : %3.2f\n",
+                DEBUG_MSG("X Offset: " <<
                        descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].offsetx
                 );
 
                 memcpy(&descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].offsety, ptr, 4);
                 ptr += 4;
-                printf("Y Offset : %3.2f\n",
+                DEBUG_MSG("Y Offset: " <<
                        descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].offsety
                 );
 
                 memcpy(&descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].offsetz, ptr, 4);
                 ptr += 4;
-                printf("Z Offset : %3.2f\n",
+                DEBUG_MSG("Z Offset: " <<
                        descriptions.arrDataDescriptions[i].Data.SkeletonDescription->RigidBodies[j].offsetz
                 );
             } // next rigid body
         } // next skeleton
     }  // next dataset
-    printf("End Packet\n-------------\n");
+    DEBUG_MSG("==========================");
+    DEBUG_MSG("End descriptions packet\n");
 }
 
 int motiveClient::createCommandSocket(in_addr_t IP_Address, unsigned short uPort) {
@@ -956,16 +913,11 @@ void motiveClient::commandResponseListener() {
 
         // debug - print message
         inet_ntop(AF_INET, &(srvSocketAddress.sin_addr), ip_as_str, INET_ADDRSTRLEN);
-        printf("[Client] Received command from %s: Command=%d, nDataBytes=%d\n",
-               ip_as_str, (int) packetIn.iMessage, (int) packetIn.nDataBytes);
+        DEBUG_MSG("[Client] Received command from " << ip_as_str << ": Command="
+             << (int) packetIn.iMessage <<  ", nDataBytes=" << (int) packetIn.nDataBytes);
 
-        auto ptr = (unsigned char *) &packetIn;
-//        auto server_info = (sSender_Server *) (ptr + 4);
-
-//        std::cout << "server tick frequency: " << server_info->HighResClockFrequency << std::endl;
-
-
-        // handle command
+        auto ptr = (char *) &packetIn;
+        handlePacket(ptr);
     }
 }
 
@@ -1003,10 +955,6 @@ bool motiveClient::isOK() {
 
 uint64_t motiveClient::getServerFrequency() {
     return server_frequency;
-}
-
-uint64_t motiveClient::getTimestamp() {
-    return  std::chrono::high_resolution_clock::now().time_since_epoch() / std::chrono::nanoseconds(1);
 }
 
 void motiveClient::setMulticastAddress (const std::string &address) {

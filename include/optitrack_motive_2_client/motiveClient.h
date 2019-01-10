@@ -19,9 +19,20 @@
 #define PORT_COMMAND            1510      // NatNet Command channel
 #define PORT_DATA               1511      // NatNet Data channel
 
+#define DEBUG
+
+#ifdef DEBUG
+#define DEBUG_MSG(str) do { std::cout << str << std::endl; } while( false )
+#else
+#define DEBUG_MSG(str) do { } while ( false )
+#endif
+
+
 class motiveClient {
 
 public:
+    motiveClient();
+
     motiveClient(const std::string &, const std::string &);
 
     // Starts connection to mocap and initializes settings.
@@ -29,8 +40,6 @@ public:
     bool isOK();
 
     uint64_t getServerFrequency();
-
-    uint64_t getTimestamp();
 
     void requestDataDescriptions();
 
@@ -66,8 +75,8 @@ private:
     std::thread commandResponseThread;
 
     // Callbacks
-    std::function<void(const sFrameOfMocapData&)> onFrameCallback;
-    std::function<void(const sDataDescriptions&)> onDataDescriptionsCallback;
+    std::function<void(const sFrameOfMocapData &)> onFrameCallback;
+    std::function<void(const sDataDescriptions &)> onDataDescriptionsCallback;
 
     // Thread listening to the data sockets.
     void dataListener();
@@ -100,6 +109,5 @@ private:
     int sendCommand(char *);
 
 };
-
 
 #endif // MOTIONCAPTURECLIENTFRAMEWORK_H
